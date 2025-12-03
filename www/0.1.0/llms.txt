@@ -1,0 +1,53 @@
+# LLM Docs
+
+## Compact Docs
+
+Copy just this section if you want to keep your context small.
+If you want all docs, check the section `Full Docs per Module` below.
+
+Zip.create : List ZipEntry -> Result (List U8) CreateError
+Zip.extract : List U8 -> Result (List ZipEntry) ExtractError
+
+## Full Docs per Module
+### Zip
+
+Description:
+A file entry in the archive.
+
+The `path` can include directories (e.g., `"foo/bar.txt"`).
+
+Description:
+Errors that can occur when creating a ZIP archive.
+
+Description:
+Errors that can occur when extracting a ZIP archive.
+
+create : List ZipEntry -> Result (List U8) CreateError
+
+Description:
+Create a ZIP archive from a list of entries. Returns the archive as bytes.
+
+    when Zip.create([
+        { path: "hello.txt", content: Str.to_utf8("Hello!") },
+        { path: "data/info.json", content: Str.to_utf8("{}") },
+    ]) is
+        Ok(archive) -> # Use the archive bytes
+        Err(EmptyPath(path)) -> # Path was empty
+        Err(PathTooLong(path)) -> # Path exceeds 65535 bytes
+        Err(FileTooLarge(path)) -> # File exceeds 4GB
+
+
+extract : List U8 -> Result (List ZipEntry) ExtractError
+
+Description:
+Extract entries from a ZIP archive.
+
+    when Zip.extract(zip_bytes) is
+        Ok(entries) -> # List of { path, content }
+        Err(InvalidSignature) -> # Not a valid ZIP file
+        Err(CompressionNotSupported(method)) -> # Only store method supported
+        Err(CrcMismatch({ path, expected, actual })) -> # Data corruption
+        Err(InvalidFilename) -> # Filename is not valid UTF-8
+        Err(TruncatedArchive) -> # Archive is incomplete
+
+
