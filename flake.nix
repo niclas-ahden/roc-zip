@@ -11,77 +11,58 @@
   };
 
   outputs = { nixpkgs, flake-utils, roc-src, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (system:
       let
         pkgs = import nixpkgs { inherit system; };
         inherit (pkgs) lib;
 
         version = roc-src.shortRev or "dirty";
 
-        # roc self-hosts through a pinned Zig toolchain published by
-        # roc-bootstrap. In build.zig.zon these are `lazy = true`, so the plain
-        # `zig build --fetch` in roc-deps below does NOT vendor them — only the
-        # host's toolchain is actually needed, and we fetch it explicitly.
-        bootstrapUrl = {
-          "x86_64-linux" = "https://github.com/roc-lang/roc-bootstrap/releases/download/zig-0.16.0/x86_64-linux-musl.tar.xz";
-          "aarch64-linux" = "https://github.com/roc-lang/roc-bootstrap/releases/download/zig-0.16.0/aarch64-linux-musl.tar.xz";
-          "x86_64-darwin" = "https://github.com/roc-lang/roc-bootstrap/releases/download/zig-0.16.0/x86_64-macos-none.tar.xz";
-          "aarch64-darwin" = "https://github.com/roc-lang/roc-bootstrap/releases/download/zig-0.16.0/aarch64-macos-none.tar.xz";
+        zig = pkgs.zig_0_16;
+
+        vendored = pkgs.callPackage "${roc-src}/build.zig.zon.nix" { inherit zig; };
+
+        bootstrapBase = "https://github.com/roc-lang/roc-bootstrap/releases/download/zig-0.16.0-binaryen";
+        hostBootstrap = {
+          "x86_64-linux" = { pkgHash = "N-V-__8AAGJLMhhn8pu3uyxtKTIlha8CxCjE6TNpLYvvj-cz"; file = "x86_64-linux-musl.tar.xz"; sha256 = "sha256-rvj4CqOfLibgPjdxDDFl9Rspwr9NOqQDNuqZqCmdiiQ="; };
+          "aarch64-linux" = { pkgHash = "N-V-__8AACK4KheKSiltX0PPURTNh0CvJhsopNXzcXpvq9pS"; file = "aarch64-linux-musl.tar.xz"; sha256 = "sha256-Uienx53sFqoov9R3r1Rl8MOOuevyDfRFTTQdEy1FLxw="; };
+          "x86_64-darwin" = { pkgHash = "N-V-__8AAJrG0hG7ZWMT8yxRBa17ivn77bWqDpseO904PYT7"; file = "x86_64-macos-none.tar.xz"; sha256 = "sha256-itVlXxuYFxdOSYm2dasTI0NXgzi5vCIu9k7otvLLd2s="; };
+          "aarch64-darwin" = { pkgHash = "N-V-__8AAKS-VRH7JXsaDHpnFPSd-B5fSdtnDbh0XrfnncWc"; file = "aarch64-macos-none.tar.xz"; sha256 = "sha256-SDwhz/eUhlhEJght1kX5ng0Z6JiFNWIk30H3rgpxUyw="; };
         }.${system};
 
-        # Fixed-output derivation: fetch the Zig dependency tree declared in
-        # roc's build.zig.zon into a Zig package cache. This is the ONLY step
-        # granted network access, and its result is pinned by `outputHash`, so
-        # the compiler build below can run fully sandboxed and hermetic.
-        #
-        # Whenever the pinned roc commit changes its dependency set, set
-        # `outputHash` to `lib.fakeHash`, run `nix build .#roc-deps`, and paste
-        # the `got: sha256-...` value the hash mismatch prints back here.
-        roc-deps = pkgs.stdenv.mkDerivation {
-          pname = "roc-deps";
-          inherit version;
-          src = roc-src;
+        hostBootstrapPkg = pkgs.runCommand "roc-host-bootstrap-${system}"
+          {
+            src = pkgs.fetchurl {
+              url = "${bootstrapBase}/${hostBootstrap.file}";
+              hash = hostBootstrap.sha256;
+            };
+          } ''
+          mkdir -p "$out/${hostBootstrap.pkgHash}"
+          tar -xf "$src" -C "$out/${hostBootstrap.pkgHash}" --strip-components=1
+        '';
 
-          nativeBuildInputs = [ pkgs.zig_0_16 pkgs.git ];
-
-          dontConfigure = true;
-
-          buildPhase = ''
-            export HOME=$TMPDIR
-            export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
-            zig build --fetch
-            # The host self-hosting toolchain is a lazy dep, so --fetch skips it.
-            zig fetch "${bootstrapUrl}"
-          '';
-
-          installPhase = ''
-            mkdir -p $out
-            cp -r $TMPDIR/zig-cache/p $out/p
-          '';
-
-          outputHashMode = "recursive";
-          outputHashAlgo = "sha256";
-          outputHash = "sha256-3NwJgJxgI9A9ZXRU/uFTHBavWgbTc31j7G/Y6RmD+2A=";
+        roc-deps = pkgs.symlinkJoin {
+          name = "roc-zig-packages";
+          paths = [ vendored hostBootstrapPkg ];
         };
 
-        roc = pkgs.stdenv.mkDerivation {
-          pname = "roc";
+        mkRoc = optimize: pkgs.stdenv.mkDerivation {
+          pname = "roc" + (if optimize == "ReleaseSafe" then "" else "-" + lib.toLower optimize);
           inherit version;
           src = roc-src;
 
-          nativeBuildInputs = [ pkgs.zig_0_16 ];
+          nativeBuildInputs = [ zig ];
 
           dontConfigure = true;
 
           buildPhase = ''
             export HOME=$TMPDIR
 
-            # Offline build against the prefetched, content-pinned cache. Zig
-            # writes into the global cache, so copy it out of the read-only store.
-            cp -r ${roc-deps} $TMPDIR/zig-global-cache
-            chmod -R u+w $TMPDIR/zig-global-cache
-
-            zig build roc -Doptimize=ReleaseSafe \
+            # `--system` points Zig at the prevendored package set (looked up by
+            # bare hash), so the build never touches the network. Zig still
+            # wants writable cache dirs, so keep those under $TMPDIR.
+            zig build roc -Doptimize=${optimize} \
+              --system ${roc-deps} \
               --cache-dir $TMPDIR/zig-local-cache \
               --global-cache-dir $TMPDIR/zig-global-cache
           '';
@@ -99,12 +80,15 @@
             platforms = lib.platforms.unix;
           };
         };
+
+        roc = mkRoc "ReleaseSafe";
+        roc-fast = mkRoc "ReleaseFast";
       in
       {
         formatter = pkgs.nixpkgs-fmt;
 
         packages = {
-          inherit roc roc-deps;
+          inherit roc roc-fast roc-deps;
           default = roc;
         };
 
@@ -113,6 +97,11 @@
             buildInputs = [
               roc
               pkgs.watchexec
+              # Used in our tests to verify that we can read and write
+              # ZIP files from/to these well-known tools:
+              pkgs.unzip
+              pkgs.libarchive
+              pkgs.p7zip
             ];
 
             shellHook = ''
