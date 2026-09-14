@@ -13,19 +13,27 @@ View the API documentation at [https://niclas-ahden.github.io/roc-zip/](https://
 
 ```roc
 app [main!] {
-    pf: platform "https://github.com/niclas-ahden/basic-cli/releases/download/0.22.1/DobkAk7zNyqAgqh2Riaj5c5DtWtKhd5iVYE5RFa6izcd.tar.zst",
-    zip: "package/main.roc",
+    pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.23.0-rc1/3hT3SoHZ6qbEsa9qVFLUW3547U5LeoNd1KbpqLpz4r1i.tar.zst",
+    zip: "https://github.com/niclas-ahden/roc-zip/releases/download/0.2.0/CMyXBXiA3wXpitwxzgfwbygm8UoaSAJTKiUiqDydrTx5.tar.zst",
 }
 
 import pf.Stdout
+import pf.OsStr
 import zip.Zip
 
-main! = |_| {
+main! = |args| {
+    # Archives the text you pass on the command line as the lyrics, or this
+    # line if you pass none
+    lyrics = match args.get(1) {
+        Ok(arg) => OsStr.display(arg).to_utf8()
+        Err(_) => "Bought a tarantula from a Swedish guy, he helped me out in Stockholm with a DUI".to_utf8()
+    }
+
     entries = [
         { path: "irish/artists.txt", content: "Rubberbandits".to_utf8() },
         { path: "irish/songs.txt", content: "Dad's Best Friend".to_utf8() },
-        { path: "irish/lyrics.txt", content: "Bought a tarantula from a Swedish guy, he helped me out in Stockholm with a DUI".to_utf8() },
-        { path: "links.txt", content: "https://www.youtube.com/watch?v=iYgPznBrjiA".to_utf8(), },
+        { path: "irish/lyrics.txt", content: lyrics },
+        { path: "links.txt", content: "https://www.youtube.com/watch?v=iYgPznBrjiA".to_utf8() },
     ]
 
     match Zip.create(entries, Balanced) {
@@ -37,6 +45,8 @@ main! = |_| {
     Ok({})
 }
 ```
+
+See [examples](examples/) for a runnable program.
 
 ## Choosing a compression level
 
