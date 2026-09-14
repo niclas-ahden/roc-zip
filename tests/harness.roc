@@ -154,7 +154,11 @@ verify_entry! = |zip_os, entry, name| {
 		{}
 	}
 
-	expect_bytes!("bsdtar", [OsStr.from_str("-xOf"), zip_os, path_os], entry, name)?
+	# libarchive on macOS normalizes entry names to decomposed Unicode, so the
+	# precomposed name from the command line never matches there. A glob in
+	# place of the non-ASCII characters matches under either form, and bsdtar
+	# still exits 1 when nothing matches.
+	expect_bytes!("bsdtar", [OsStr.from_str("-xOf"), zip_os, OsStr.from_str(bsdtar_pattern(entry.path))], entry, name)?
 	expect_bytes!("7z", [OsStr.from_str("e"), OsStr.from_str("-so"), zip_os, path_os], entry, name)
 }
 
@@ -209,6 +213,20 @@ expect_ok! = |program, arguments, name| {
 
 is_ascii : Str -> Bool
 is_ascii = |text| text.to_utf8().fold(Bool.True, |acc, byte| acc and byte < 0x80)
+
+# The path with every run of non-ASCII bytes replaced by a single `*`.
+bsdtar_pattern : Str -> Str
+bsdtar_pattern = |path| {
+	folded = path.to_utf8().fold({ out: [], in_run: Bool.False }, |acc, byte|
+		if byte < 0x80 {
+			{ out: acc.out.append(byte), in_run: Bool.False }
+		} else if acc.in_run {
+			acc
+		} else {
+			{ out: acc.out.append(0x2A), in_run: Bool.True }
+		})
+	Str.from_utf8_lossy(folded.out)
+}
 
 # Repetitive text, appended byte-wise into a bare list so the loop stays linear.
 repeated_text : U64 -> List(U8)
