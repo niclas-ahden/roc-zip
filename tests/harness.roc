@@ -15,7 +15,7 @@
 ##
 ##     nix develop -c ./tests.roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.23.0-rc1/3hT3SoHZ6qbEsa9qVFLUW3547U5LeoNd1KbpqLpz4r1i.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
 	zip: "../package/main.roc",
 }
 
@@ -23,8 +23,8 @@ import pf.Stdout
 import pf.Cmd
 import pf.Path
 import pf.Env
-import pf.IOErr exposing [IOErr]
-import pf.OsStr exposing [OsStr]
+import pf.IOErr
+import pf.OsStr
 import zip.Zip
 
 main! = |args| {
@@ -53,7 +53,7 @@ main! = |args| {
 # classic record carries sentinels. Zip.roc's own tests only round-trip that
 # through Zip.extract, which shares this writer's assumptions, so prove real
 # readers accept it too.
-check_zip64! : Path.Path, U64 => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+check_zip64! : Path.Path, U64 => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check_zip64! = |tmp, n| {
 	total = 65535 + n
 	entries = many_entries(0, total, List.with_capacity(total))
@@ -95,7 +95,7 @@ many_entries = |index, total, acc|
 
 # Build one archive at the given compression, then make every reader prove it
 # can both verify the container and reproduce each entry's bytes.
-check! : Path.Path, U64, Str, [None, Fastest, Balanced, Smallest] => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+check! : Path.Path, U64, Str, [None, Fastest, Balanced, Smallest] => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check! = |tmp, n, name, level| {
 	entries = sample_entries(n)
 	archive = match Zip.create(entries, level) {
@@ -141,7 +141,7 @@ sample_entries = |n| [
 ]
 
 # Check one entry against every reader that can address it.
-verify_entry! : OsStr, { path : Str, content : List(U8) }, Str => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+verify_entry! : OsStr, { path : Str, content : List(U8) }, Str => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 verify_entry! = |zip_os, entry, name| {
 	path_os = OsStr.from_str(entry.path)
 
@@ -162,7 +162,7 @@ verify_entry! = |zip_os, entry, name| {
 	expect_bytes!("7z", [OsStr.from_str("e"), OsStr.from_str("-so"), zip_os, path_os], entry, name)
 }
 
-verify_from! : OsStr, List({ path : Str, content : List(U8) }), Str, U64 => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+verify_from! : OsStr, List({ path : Str, content : List(U8) }), Str, U64 => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 verify_from! = |zip_os, entries, name, index|
 	if index >= entries.len() {
 		Ok({})
@@ -173,16 +173,19 @@ verify_from! = |zip_os, entries, name, index|
 	}
 
 # Run a reader and require its stdout to equal the entry's original content.
-expect_bytes! : Str, List(OsStr), { path : Str, content : List(U8) }, Str => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+expect_bytes! : Str, List(OsStr), { path : Str, content : List(U8) }, Str => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 expect_bytes! = |program, arguments, entry, name| {
-	got = match Cmd.new(OsStr.from_str(program)).args(arguments).exec_output_bytes!() {
-		Ok(res) => res.stdout_bytes
-		Err(NonZeroExitCodeB({ exit_code, stderr_bytes, .. })) => {
-			Stdout.line!("  ${name}: ${program} exited ${exit_code.to_str()} on ${entry.path}: ${Str.from_utf8_lossy(stderr_bytes)}")?
-			Err(Exit(1))?
-		}
+	output = match Cmd.new(OsStr.from_str(program)).args(arguments).run!() {
+		Ok(res) => res
 		Err(_) => {
 			Stdout.line!("  ${name}: could not run ${program}")?
+			Err(Exit(1))?
+		}
+	}
+	got = match output.status {
+		Exited(0) => output.stdout_bytes
+		status => {
+			Stdout.line!("  ${name}: ${program} ${Str.inspect(status)} on ${entry.path}: ${output.stderr_utf8_lossy()}")?
 			Err(Exit(1))?
 		}
 	}
@@ -196,14 +199,17 @@ expect_bytes! = |program, arguments, entry, name| {
 }
 
 # Run a command purely for its exit status.
-expect_ok! : Str, List(OsStr), Str => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+expect_ok! : Str, List(OsStr), Str => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 expect_ok! = |program, arguments, name| {
-	match Cmd.new(OsStr.from_str(program)).args(arguments).exec_output_bytes!() {
-		Ok(_res) => Ok({})
-		Err(NonZeroExitCodeB({ exit_code, stderr_bytes, .. })) => {
-			Stdout.line!("  ${name}: ${program} exited ${exit_code.to_str()}: ${Str.from_utf8_lossy(stderr_bytes)}")?
-			Err(Exit(1))
-		}
+	match Cmd.new(OsStr.from_str(program)).args(arguments).run!() {
+		Ok(output) =>
+			match output.status {
+				Exited(0) => Ok({})
+				status => {
+					Stdout.line!("  ${name}: ${program} ${Str.inspect(status)}: ${output.stderr_utf8_lossy()}")?
+					Err(Exit(1))
+				}
+			}
 		Err(_) => {
 			Stdout.line!("  ${name}: could not run ${program}")?
 			Err(Exit(1))
