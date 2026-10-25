@@ -14,7 +14,7 @@ View the API documentation at [https://niclas-ahden.github.io/roc-zip/](https://
 ```roc
 app [main!] {
     pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
-    zip: "https://github.com/niclas-ahden/roc-zip/releases/download/0.2.1/3g966LUUN4qsEWTzmdQsu7Fkd34mQs1miMXnbrWpKKXT.tar.zst",
+    zip: "https://github.com/niclas-ahden/roc-zip/releases/download/0.2.2/FpMTcemHxwRmDRCwnTtcrQeCRnqA5UcJ1TZzYL3iPtA4.tar.zst",
 }
 
 import pf.Stdout
