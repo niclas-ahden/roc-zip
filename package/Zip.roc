@@ -55,10 +55,10 @@ ZipEntry : { path : Str, content : List(U8) }
 ## How (and whether) [Zip.create] compresses entries.
 ##
 ## `None` stores entries uncompressed. The rest compress with DEFLATE,
-## trading speed for size: `Fastest` compresses least but is quickest,
-## `Smallest` produces the smallest archive this library can (dedicated
-## tools at their highest settings still beat it by a few percent), and
-## `Balanced` sits in between.
+## trading speed for size, with the levels of
+## [roc-deflate](https://github.com/niclas-ahden/roc-deflate), a port of libdeflate:
+## `Fastest` is level 1, the quickest, `Balanced` is level 6, zlib's default
+## effort, and `Smallest` is level 12, the smallest archive libdeflate makes.
 ##
 ## With anything but `None`, an entry whose compressed form would not be
 ## smaller (e.g. data that is already compressed) is stored uncompressed
@@ -201,12 +201,21 @@ prepare_stored = |entry| {
 	uncompressed_len: entry.content.len(),
 }
 
+## The roc-deflate level behind each DEFLATE setting of [Compression].
+deflate_level : [Fastest, Balanced, Smallest] -> Deflate.Level
+deflate_level = |compression|
+	match compression {
+		Fastest => 1
+		Balanced => 6
+		Smallest => 12
+	}
+
 # Compress one entry, falling back to store when compression would not
 # shrink it, as ZIP tools conventionally do.
 prepare_deflated : ZipEntry, [Fastest, Balanced, Smallest] -> PreparedEntry
-prepare_deflated = |entry, level| {
+prepare_deflated = |entry, compression| {
 	crc = Crc32.checksum(entry.content)
-	deflated = Deflate.compress(entry.content, level)
+	deflated = Deflate.compress(entry.content, deflate_level(compression))
 	if deflated.len() < entry.content.len() {
 		{
 			path: entry.path,
