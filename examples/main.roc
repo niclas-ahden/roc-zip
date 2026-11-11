@@ -1,5 +1,5 @@
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	zip: "../package/main.roc",
 }
 
@@ -10,7 +10,7 @@ import zip.Zip
 main! = |args| {
 	# Archives the text you pass on the command line as the lyrics, or this
 	# line if you pass none
-	lyrics = match args.get(1) {
+	lyrics = match args.get(0) {
 		Ok(arg) => OsStr.display(arg).to_utf8()
 		Err(_) => "Bought a tarantula from a Swedish guy, he helped me out in Stockholm with a DUI".to_utf8()
 	}
@@ -26,6 +26,7 @@ main! = |args| {
 		Ok(archive) => Stdout.line!("Created a ${archive.len().to_str()} byte archive")?
 		Err(EmptyPath(_path)) => Stdout.line!("Path was empty")?
 		Err(PathTooLong(_path)) => Stdout.line!("Path exceeds 65535 bytes")?
+		Err(DuplicatePath(_path)) => Stdout.line!("Two entries share a path")?
 	}
 
 	Ok({})

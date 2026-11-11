@@ -7,5 +7,9 @@
 .envrc
 generated-docs/
 
+# Fuzz executables, corpora and reports (see tests.roc)
+.fuzz/
+.roc-fuzz/
+
 # The catch-alls above ignore extensionless files, but this one must ship
 !LICENSE

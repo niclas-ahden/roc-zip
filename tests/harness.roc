@@ -15,7 +15,7 @@
 ##
 ##     nix develop -c ./tests.roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	zip: "../package/main.roc",
 }
 
@@ -30,9 +30,10 @@ import zip.Zip
 main! = |args| {
 	# `args.len()` keeps the entries runtime-derived. With fully literal entries
 	# the compiler evaluates Zip.create at build time, which defeats the point of
-	# handing a freshly built archive to another program. It is 1 with no
-	# arguments, so the archives stay identical across runs.
-	n = args.len()
+	# handing a freshly built archive to another program. The arguments exclude
+	# the program name, so `n` is 1 with none, and the archives stay identical
+	# across runs.
+	n = args.len() + 1
 	tmp = Env.temp_dir!()
 
 	Stdout.line!("== forward: real tools read the archives we write")?
@@ -41,11 +42,52 @@ main! = |args| {
 	check!(tmp, n, "balanced", Balanced)?
 	check!(tmp, n, "smallest", Smallest)?
 
+	Stdout.line!("== forward: real tools read entries copied as stored")?
+	check_copy!(tmp, n)?
+
 	Stdout.line!("== forward: real tools read a ZIP64 end of central directory")?
 	check_zip64!(tmp, n)?
 
 	Stdout.line!("All forward interop checks passed")?
 	Ok({})
+}
+
+# Copy every entry of a compressed archive into a new one through
+# Zip.compressed and Copied, the way a reader passes parts it does not model
+# through unchanged, then make every reader prove the copy is intact.
+check_copy! : Path.Path, U64 => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
+check_copy! = |tmp, n| {
+	entries = sample_entries(n)
+	source = Zip.create(entries, Balanced) ?? []
+	index = Zip.entries(source) ?? []
+	var $writer = Zip.writer({ compression: None })
+	var $copy = []
+	for entry in index {
+		added = match Zip.compressed(source, entry) {
+			Ok(stored) => Zip.add($writer, Copied(stored)).map_err(|_| {})
+			Err(_) => Err({})
+		}
+		match added {
+			Ok({ writer, chunk }) => {
+				$writer = writer
+				$copy = $copy.concat(chunk)
+			}
+			Err(_) => {
+				Stdout.line!("  copy: could not copy ${entry.path}")?
+				Err(Exit(1))?
+			}
+		}
+	}
+	archive = $copy.concat(Zip.finish($writer))
+
+	zip_path = tmp.join("roc_zip_harness_copy.zip")
+	Path.write_bytes!(zip_path, archive) ? |_| Exit(1)
+	zip_os = OsStr.from_raw(Path.to_raw(zip_path))
+	expect_ok!("unzip", [OsStr.from_str("-tqq"), zip_os], "copy")?
+	expect_ok!("7z", [OsStr.from_str("t"), zip_os], "copy")?
+	verify_from!(zip_os, entries, "copy", 0)?
+	Path.delete!(zip_path) ? |_| Exit(1)
+	Stdout.line!("  copy: ${index.len().to_str()} entries, ${archive.len().to_str()} bytes, unzip + bsdtar + 7z all agree")
 }
 
 # More than 65535 entries overflows the classic 16-bit entry count, so the
@@ -106,6 +148,10 @@ check! = |tmp, n, name, level| {
 		}
 		Err(PathTooLong(path)) => {
 			Stdout.line!("  ${name}: Zip.create rejected a long path: ${path}")?
+			Err(Exit(1))?
+		}
+		Err(DuplicatePath(path)) => {
+			Stdout.line!("  ${name}: Zip.create rejected a repeated path: ${path}")?
 			Err(Exit(1))?
 		}
 	}

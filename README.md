@@ -4,6 +4,10 @@ Create and extract ZIP archives in Roc.
 
 - `Zip.create` builds an archive from a list of entries, with a compression option: `None` stores entries as-is, while `Fastest`, `Balanced`, and `Smallest` compress with DEFLATE at increasing effort (falling back to store when compression doesn't help).
 - `Zip.extract` reads both store and deflate entries, including archives made by other tools.
+- For archives from untrusted sources, `Zip.entries` lists the central directory without inflating anything, and `Zip.extract_entry` inflates one entry within a size limit. An entry that declares more than the limit fails before anything is allocated for it, and a stream that runs past its declared size stops there.
+- `Zip.compressed` takes an entry's bytes exactly as stored, so `Zip.add` can copy it into another archive without inflating or recompressing it.
+- `Zip.writer`, `Zip.add` and `Zip.finish` write an archive one entry at a time. Each call returns the next chunk, which can go straight to a file. The chunks add up to the bytes `Zip.create` returns.
+- Output is deterministic: entries keep their order, timestamps are zeroed, and there are no data descriptors. Repeated paths are refused by the writer and rejected by the reader, since different readers resolve them differently.
 - Supports ZIP64, so files and archives larger than 4 GB work.
 - Compression comes from [roc-deflate](https://github.com/niclas-ahden/roc-deflate), a pure-Roc DEFLATE implementation. Use that package directly if you need raw DEFLATE streams (gzip, PNG, etc.) without the ZIP container.
 
@@ -13,7 +17,7 @@ View the API documentation at [https://niclas-ahden.github.io/roc-zip/](https://
 
 ```roc
 app [main!] {
-    pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
+    pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
     zip: "https://github.com/niclas-ahden/roc-zip/releases/download/0.2.2/FpMTcemHxwRmDRCwnTtcrQeCRnqA5UcJ1TZzYL3iPtA4.tar.zst",
 }
 
@@ -24,7 +28,7 @@ import zip.Zip
 main! = |args| {
     # Archives the text you pass on the command line as the lyrics, or this
     # line if you pass none
-    lyrics = match args.get(1) {
+    lyrics = match args.get(0) {
         Ok(arg) => OsStr.display(arg).to_utf8()
         Err(_) => "Bought a tarantula from a Swedish guy, he helped me out in Stockholm with a DUI".to_utf8()
     }
@@ -40,6 +44,7 @@ main! = |args| {
         Ok(archive) => Stdout.line!("Created a ${archive.len().to_str()} byte archive")?
         Err(EmptyPath(_path)) => Stdout.line!("Path was empty")?
         Err(PathTooLong(_path)) => Stdout.line!("Path exceeds 65535 bytes")?
+        Err(DuplicatePath(_path)) => Stdout.line!("Two entries share a path")?
     }
 
     Ok({})
@@ -47,6 +52,25 @@ main! = |args| {
 ```
 
 See [examples](examples/) for a runnable program.
+
+## Reading untrusted archives
+
+A small archive can declare, or inflate to, gigabytes. List it first, and extract each entry within a limit:
+
+```roc
+read_parts : List(U8) -> Try(List({ path : Str, content : List(U8) }), _)
+read_parts = |bytes| {
+    index = Zip.entries(bytes)?
+    var $parts = []
+    for entry in index {
+        content = Zip.extract_entry(bytes, entry, { max_bytes: 16_777_216 })?
+        $parts = $parts.append({ path: entry.path, content })
+    }
+    Ok($parts)
+}
+```
+
+Listing holds memory in proportion to the central directory, not to the sizes the entries declare. Extracting holds at most the decoder's tables and the entry's declared size. The [fuzz targets](fuzz/) check both bounds, along with the rest of the API, against arbitrary and corrupted archives.
 
 ## Choosing a compression level
 
