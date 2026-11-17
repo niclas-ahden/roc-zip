@@ -13,8 +13,8 @@ View the API documentation at [https://niclas-ahden.github.io/roc-zip/](https://
 
 ```roc
 app [main!] {
-    pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.28.0/2yhxoR7cZPSYbyUzPWULFw8AA6QEcdsgFNRmzu7pZbst.tar.zst",
-    zip: "https://github.com/niclas-ahden/roc-zip/releases/download/0.2.2/FpMTcemHxwRmDRCwnTtcrQeCRnqA5UcJ1TZzYL3iPtA4.tar.zst",
+    pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.28.1/7brgwR8YUqfeGrkdfF1V4GPPN7DnP7ftqub9KcrTEZtr.tar.zst",
+    zip: "https://github.com/niclas-ahden/roc-zip/releases/download/0.2.3/H15dKDAKrMTpgSnC4eQUVqaSUeYW4Lw97hcNUvXBdnb1.tar.zst",
 }
 
 import pf.Stdout
